@@ -1,0 +1,11 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = 'LanMultiplayerSdk'
+include ':app'
+project(':app').projectDir = file('app')
