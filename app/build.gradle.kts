@@ -8,6 +8,12 @@ plugins {
 android {
     namespace = "com.example.lanmultiplayer"
     compileSdk = 36
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     buildFeatures { compose = true }
 
     defaultConfig {
