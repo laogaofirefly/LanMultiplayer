@@ -14,6 +14,8 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     private var udp: UdpSession? = null
     private var receiveJob: Job? = null
     private var udpJob: Job? = null
+    private var heartbeatJob: Job? = null
+    @Volatile private var lastPongAt = 0L
     private val sequence = AtomicInteger()
     private var playerId = 0
 
@@ -57,6 +59,8 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
             _state.value = ConnectionState.CONNECTED
             receiveJob = scope.launch { tcpLoop(session) }
             udpJob = scope.launch { udpLoop() }
+            lastPongAt = System.currentTimeMillis()
+            heartbeatJob = scope.launch { heartbeatLoop(session) }
             true
         }.getOrElse { closeConnection(); _state.value = ConnectionState.FAILED; false }
     }
@@ -67,8 +71,15 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
                 val message = session.receive()
                 when (message.type) {
                     Protocol.PLAYER_LIST -> _players.value = PlayerListCodec.decode(message.payload)
-                    Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
+Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
                         _chatMessages.value = (_chatMessages.value + chat).takeLast(100)
+                    }
+                    Protocol.PONG -> {
+                        if (message.payload.size == 8) {
+                            val sentAt = ByteBuffer.wrap(message.payload).long
+                            lastPongAt = System.currentTimeMillis()
+                            _stats.value = _stats.value.copy(rttMs = (lastPongAt - sentAt).coerceAtLeast(0))
+                        }
                     }
                     else -> _reliable.emit(message)
                 }
@@ -76,6 +87,24 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
             }
         } catch (_: Exception) {
             if (_state.value == ConnectionState.CONNECTED) _state.value = ConnectionState.FAILED
+        }
+    }
+
+    private suspend fun heartbeatLoop(session: TcpSession) {
+        while (scope.isActive && _state.value == ConnectionState.CONNECTED) {
+            val now = System.currentTimeMillis()
+            try {
+                session.send(Protocol.PING, ByteBuffer.allocate(8).putLong(now).array())
+                _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
+            } catch (_: Exception) {
+                break
+            }
+            delay(2_000)
+            if (System.currentTimeMillis() - lastPongAt > 8_000) {
+                _state.value = ConnectionState.FAILED
+                closeConnection()
+                break
+            }
         }
     }
 
@@ -99,6 +128,6 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
         _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
     }
 
-    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; _players.value = emptyList(); _chatMessages.value = emptyList() }
+    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; _players.value = emptyList(); _chatMessages.value = emptyList() }
     override fun close() { stopDiscovery(); closeConnection(); scope.cancel(); _state.value = ConnectionState.DISCONNECTED }
 }
