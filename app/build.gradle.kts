@@ -14,12 +14,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; prefab = true }
+    externalNativeBuild { cmake { path = file("../native/CMakeLists.txt"); version = "3.22.1" } }
 
     defaultConfig {
         applicationId = "com.example.lanmultiplayer"
         minSdk = 23
         targetSdk = 36
+        externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
         versionCode = 1
         versionName = "0.1.0"
     }

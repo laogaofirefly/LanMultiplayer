@@ -18,6 +18,7 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     @Volatile private var lastPongAt = 0L
     private val sequence = AtomicInteger()
     private var playerId = 0
+    private var latestUdpSequence = -1
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     private val _rooms = MutableStateFlow<List<Room>>(emptyList())
@@ -109,8 +110,15 @@ Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
     }
 
     private suspend fun udpLoop() {
-        while (scope.isActive) { val p = udp?.receive() ?: continue; _realtime.emit(NetworkMessage(p.type, p.payload)); _stats.value = _stats.value.copy(received = _stats.value.received + 1) }
+        while (scope.isActive) {
+            val packet = udp?.receive() ?: continue
+            if (!NativeSequenceWindow.accepts(packet.sequence, latestUdpSequence)) continue
+            latestUdpSequence = packet.sequence
+            _realtime.emit(NetworkMessage(packet.type, packet.payload))
+            _stats.value = _stats.value.copy(received = _stats.value.received + 1)
+        }
     }
+
 
     suspend fun sendChat(text: String) {
         val payload = ChatCodec.encodeClientText(text)
@@ -128,6 +136,6 @@ Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
         _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
     }
 
-    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; _players.value = emptyList(); _chatMessages.value = emptyList() }
+    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; latestUdpSequence = -1; _players.value = emptyList(); _chatMessages.value = emptyList() }
     override fun close() { stopDiscovery(); closeConnection(); scope.cancel(); _state.value = ConnectionState.DISCONNECTED }
 }

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(lanmultiplayer_native)
+add_library(lanmultiplayer_native SHARED src/main/cpp/sequence_window.cpp)
+find_library(log-lib log)
+target_link_libraries(lanmultiplayer_native ${log-lib})
