@@ -2,6 +2,8 @@ package com.example.lanmultiplayer
 
 import android.content.Context
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
@@ -12,8 +14,9 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class LanServer(
     private val context: Context,
-    private val config: RoomConfig,
-    private val tcpPort: Int = 0,
+private val config: RoomConfig,
+     private val hostPlayerName: String,
+     private val tcpPort: Int = 0,
     private val udpPort: Int = 0
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -24,6 +27,8 @@ class LanServer(
     private var udp: DatagramSocket? = null
     private var registration: android.net.nsd.NsdManager.RegistrationListener? = null
     private var running = false
+    private val _players = MutableStateFlow<List<Player>>(emptyList())
+    val players = _players.asStateFlow()
 
     val actualTcpPort: Int get() = tcp?.localPort ?: 0
     val actualUdpPort: Int get() = udp?.localPort ?: 0
@@ -33,6 +38,7 @@ class LanServer(
         tcp = ServerSocket(tcpPort)
         udp = DatagramSocket(udpPort)
         running = true
+        _players.value = listOf(Player(0, hostPlayerName.ifBlank { "房主" }.take(32)))
         registration = NsdDiscovery(context).register(config, actualTcpPort, actualUdpPort, 0)
         scope.launch { acceptLoop() }
         scope.launch { udpLoop() }
@@ -104,10 +110,11 @@ Protocol.RELIABLE -> broadcastTcp(Protocol.RELIABLE, message.payload)
     }
 
     private suspend fun broadcastPlayerList() {
-        val players = clients.values
+        val players = listOf(Player(0, hostPlayerName.ifBlank { "房主" }.take(32))) + clients.values
             .filter { it.name.isNotBlank() }
             .sortedBy { it.id }
             .map { Player(it.id, it.name) }
+        _players.value = players
         broadcastTcp(Protocol.PLAYER_LIST, PlayerListCodec.encode(players))
     }
 

@@ -30,7 +30,10 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     val rooms = client.rooms
     val state = client.state
     val stats = client.stats
-    val players = client.players
+    private val _hostPlayers = MutableStateFlow<List<Player>>(emptyList())
+    val players = combine(client.players, _hostPlayers) { clientPlayers, hostPlayers ->
+        if (hostPlayers.isNotEmpty()) hostPlayers else clientPlayers
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun setName(value: String) { _name.value = value.take(24) }
     fun setRoomName(value: String) { _roomName.value = value.take(24) }
@@ -85,9 +88,15 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     fun createRoom() {
         viewModelScope.launch {
             server?.stop()
-            server = LanServer(getApplication(), RoomConfig(_roomName.value, gameId, mode = SyncMode.REALTIME_STATE))
+            _hostPlayers.value = emptyList()
+            server = LanServer(getApplication(), RoomConfig(_roomName.value, gameId, mode = SyncMode.REALTIME_STATE), _name.value)
             runCatching { server?.start() }
-                .onSuccess { _message.value = "房间已创建，正在广播" }
+                .onSuccess {
+                    server?.let { activeServer ->
+                        viewModelScope.launch { activeServer.players.collect { _hostPlayers.value = it } }
+                    }
+                    _message.value = "房间已创建，正在广播"
+                }
                 .onFailure { _message.value = "创建失败：${it.message}" }
         }
     }
