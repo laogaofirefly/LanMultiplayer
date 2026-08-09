@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    // AGP 9 provides built-in Kotlin. Do not apply org.jetbrains.kotlin.android,
+    // otherwise the Kotlin extension is registered twice.
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
