@@ -18,12 +18,15 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     private val _message = MutableStateFlow<String?>(null)
     private val _searching = MutableStateFlow(false)
     private val _inviteLink = MutableStateFlow("")
+    private val _chatInput = MutableStateFlow("")
 
     val name = _name.asStateFlow()
     val roomName = _roomName.asStateFlow()
     val message = _message.asStateFlow()
     val searching = _searching.asStateFlow()
     val inviteLink = _inviteLink.asStateFlow()
+    val chatInput = _chatInput.asStateFlow()
+    val chatMessages = client.chatMessages
     val rooms = client.rooms
     val state = client.state
     val stats = client.stats
@@ -32,6 +35,20 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     fun setName(value: String) { _name.value = value.take(24) }
     fun setRoomName(value: String) { _roomName.value = value.take(24) }
     fun setInviteLink(value: String) { _inviteLink.value = value }
+    fun setChatInput(value: String) { _chatInput.value = value.take(300) }
+
+    fun sendChat() {
+        val text = _chatInput.value.trim()
+        if (text.isEmpty()) return
+        if (client.state.value != ConnectionState.CONNECTED) {
+            _message.value = "请先加入房间后再发送消息"
+            return
+        }
+        viewModelScope.launch {
+            client.sendChat(text)
+            _chatInput.value = ""
+        }
+    }
 
     fun search() {
         discoveryJob?.cancel()

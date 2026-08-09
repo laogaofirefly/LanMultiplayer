@@ -21,6 +21,7 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     private val _rooms = MutableStateFlow<List<Room>>(emptyList())
     private val _stats = MutableStateFlow(NetworkStats())
     private val _players = MutableStateFlow<List<Player>>(emptyList())
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     private val _reliable = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 128)
     private val _realtime = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 256)
 
@@ -28,6 +29,7 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     override val rooms = _rooms.asStateFlow()
     override val stats = _stats.asStateFlow()
     val players = _players.asStateFlow()
+    val chatMessages = _chatMessages.asStateFlow()
     override val reliableMessages = _reliable.asSharedFlow()
     override val realtimeMessages = _realtime.asSharedFlow()
 
@@ -63,10 +65,12 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
         try {
             while (scope.isActive) {
                 val message = session.receive()
-                if (message.type == Protocol.PLAYER_LIST) {
-                    _players.value = PlayerListCodec.decode(message.payload)
-                } else {
-                    _reliable.emit(message)
+                when (message.type) {
+                    Protocol.PLAYER_LIST -> _players.value = PlayerListCodec.decode(message.payload)
+                    Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
+                        _chatMessages.value = (_chatMessages.value + chat).takeLast(100)
+                    }
+                    else -> _reliable.emit(message)
                 }
                 _stats.value = _stats.value.copy(received = _stats.value.received + 1)
             }
@@ -79,6 +83,14 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
         while (scope.isActive) { val p = udp?.receive() ?: continue; _realtime.emit(NetworkMessage(p.type, p.payload)); _stats.value = _stats.value.copy(received = _stats.value.received + 1) }
     }
 
+    suspend fun sendChat(text: String) {
+        val payload = ChatCodec.encodeClientText(text)
+        if (payload.isNotEmpty() && _state.value == ConnectionState.CONNECTED) {
+            tcp?.send(Protocol.CHAT, payload)
+            _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
+        }
+    }
+
     override suspend fun sendReliable(payload: ByteArray) { tcp?.send(Protocol.RELIABLE, payload); _stats.value = _stats.value.copy(sent = _stats.value.sent + 1) }
 
     override suspend fun sendRealtime(payload: ByteArray, frame: Int) {
@@ -87,6 +99,6 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
         _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
     }
 
-    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; _players.value = emptyList() }
+    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; _players.value = emptyList(); _chatMessages.value = emptyList() }
     override fun close() { stopDiscovery(); closeConnection(); scope.cancel(); _state.value = ConnectionState.DISCONNECTED }
 }

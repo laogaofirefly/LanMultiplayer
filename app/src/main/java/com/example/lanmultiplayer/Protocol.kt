@@ -11,6 +11,7 @@ object Protocol {
     const val PING: Byte = 2
     const val PONG: Byte = 3
     const val PLAYER_LIST: Byte = 4
+    const val CHAT: Byte = 5
     const val RELIABLE: Byte = 10
     const val REALTIME: Byte = 11
 

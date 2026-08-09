@@ -61,8 +61,12 @@ class LanServer(
             while (scope.isActive) {
                 val message = client.session.receive()
                 when (message.type) {
-                    Protocol.RELIABLE -> broadcastTcp(Protocol.RELIABLE, message.payload)
-                    Protocol.PING -> client.session.send(Protocol.PONG, message.payload)
+Protocol.RELIABLE -> broadcastTcp(Protocol.RELIABLE, message.payload)
+                     Protocol.CHAT -> {
+                         val text = message.payload.toString(Charsets.UTF_8).trim().take(300)
+                         if (text.isNotEmpty()) broadcastTcp(Protocol.CHAT, ChatCodec.encode(ChatMessage(client.name, text)))
+                     }
+                     Protocol.PING -> client.session.send(Protocol.PONG, message.payload)
                 }
             }
         } catch (_: Exception) {
