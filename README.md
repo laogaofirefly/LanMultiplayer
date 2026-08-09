@@ -14,7 +14,7 @@
 - **玩家列表**：玩家加入/退出自动刷新；房主和客户端均可查看。房主使用 ID `0`。
 - **房间聊天**：TCP 广播文本消息，单条消息有长度限制，客户端最多保存最近 100 条。
 - **链接加入**：支持使用域名、公网 IP 或内网穿透地址直接加入远程房间。
-- **网络工具**：重连策略、心跳、RTT/抖动估算、包限流、序列窗口、压缩、快照、插值、帧同步等基础工具类。
+- **稳定性机制**：TCP 心跳与 PONG 超时检测、RTT 测量、重连策略、包限流、UDP 序列窗口、压缩、快照、插值、帧同步等基础工具类。
 - **Compose 示例界面**：连接状态、收发统计、聊天、玩家、创建房间、链接加入和房间列表。
 
 ## 技术方案
@@ -30,6 +30,26 @@ NSD / mDNS                  TCP                         UDP
 - UDP 使用二进制头与序列号，单个载荷上限约 **1200 字节**，避免 IP 分片。
 - 推荐按游戏类型选择 `RELIABLE`、`REALTIME_STATE`、`LOCKSTEP` 或 `CUSTOM` 同步模式。
 
+### 连接稳定性
+
+- 客户端每 **2 秒**通过 TCP 发送 `PING`；服务端回传 `PONG`。
+- 超过 **8 秒**未收到 `PONG` 时，客户端将连接标记为失败并释放 TCP、UDP 与心跳资源，避免假在线与后台泄漏。
+- `PONG` 含原始时间戳，客户端据此计算并展示 RTT（往返延迟）。
+- UDP 实时数据通过序列号丢弃重复包、乱序包和过期包，防止旧状态覆盖新状态、造成位置回跳。
+- 序列号使用 32 位无符号窗口语义，能够正确处理长时间运行后的回绕。
+
+### 多语言实现
+
+项目按职责结合 Kotlin 与 C++：
+
+| 语言 / 工具 | 负责内容 | 优势 |
+|---|---|---|
+| Kotlin + Coroutines | Android 生命周期、UI 状态、TCP/UDP 会话、心跳和业务逻辑 | 与 Android API 深度集成、并发代码可读性高 |
+| C++17 + JNI | UDP 序列号的无符号回绕比较 | 精确的位运算与稳定的跨回绕语义 |
+| CMake / NDK | 编译并打包 `lanmultiplayer_native` 动态库 | 将 Native 逻辑纳入 Android APK 构建链路 |
+
+`NativeSequenceWindow` 会先尝试加载 Native 库；若设备 ABI 或打包环境导致加载失败，会自动使用等价的 Kotlin 回退实现，网络功能不会因此崩溃。
+
 ## 环境要求
 
 | 项目 | 要求 |
@@ -40,6 +60,10 @@ NSD / mDNS                  TCP                         UDP
 | JDK | 17 |
 | Android Gradle Plugin | 9.0.0 |
 | Gradle | 9.1.0+ |
+| Android NDK | 25.1+（构建 Native 序列窗口；推荐安装） |
+| CMake | 3.22.1+（构建 Native 序列窗口；推荐安装） |
+
+> 未安装 NDK/CMake 时，需移除或调整 `externalNativeBuild` 配置后再构建；运行时的 Kotlin 回退仅用于 Native 库加载失败的设备兼容场景，并不能替代构建阶段的 NDK。
 
 ## 构建 APK
 
@@ -126,7 +150,13 @@ app/src/main/java/com/example/lanmultiplayer/
 ├── Heartbeat.kt          # 心跳工具
 ├── NetworkMonitor.kt     # 网络监控
 ├── LanViewModel.kt       # Compose UI 状态管理
-└── LanScreen.kt          # 示例 UI
+├── LanScreen.kt          # 示例 UI
+└── NativeSequenceWindow.kt # JNI 序列窗口封装与 Kotlin 回退
+
+native/
+├── CMakeLists.txt        # Native 构建配置
+└── src/main/cpp/
+    └── sequence_window.cpp # C++17 无符号 UDP 序列号比较
 ```
 
 ## 协议摘要
@@ -143,7 +173,7 @@ app/src/main/java/com/example/lanmultiplayer/
 ## 当前限制与后续建议
 
 - 未完成账户认证、房间密码、加密通信、防作弊和访问控制。
-- 未完成房主迁移、权威服务器快照、UDP 可靠重传等完整机制。
+- 未完成自动重连编排、房主迁移、权威服务器快照、UDP 可靠重传与丢包率遥测等完整机制。
 - 需在真实双设备或多设备环境验证 Android 13+ 附近 Wi‑Fi 权限、NSD 生命周期、UDP 映射和网络切换。
 - 当前 NSD 主要适用于局域网；异地连接应使用链接加入。
 - 尚未在真实设备上量化 RTT、丢包、抖动和卡顿，不应将设计目标视为已验证的性能指标。
