@@ -12,6 +12,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        intent?.dataString?.let(viewModel::openInviteLink)
         setContent {
             MaterialTheme {
                 Surface { LanScreen(viewModel) }

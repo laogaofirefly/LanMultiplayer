@@ -17,11 +17,13 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     private val _roomName = MutableStateFlow("我的房间")
     private val _message = MutableStateFlow<String?>(null)
     private val _searching = MutableStateFlow(false)
+    private val _inviteLink = MutableStateFlow("")
 
     val name = _name.asStateFlow()
     val roomName = _roomName.asStateFlow()
     val message = _message.asStateFlow()
     val searching = _searching.asStateFlow()
+    val inviteLink = _inviteLink.asStateFlow()
     val rooms = client.rooms
     val state = client.state
     val stats = client.stats
@@ -29,6 +31,7 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setName(value: String) { _name.value = value.take(24) }
     fun setRoomName(value: String) { _roomName.value = value.take(24) }
+    fun setInviteLink(value: String) { _inviteLink.value = value }
 
     fun search() {
         discoveryJob?.cancel()
@@ -46,6 +49,20 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
             val ok = client.join(room, _name.value)
             _message.value = if (ok) "已加入：${room.name}" else "加入失败，请检查 Wi-Fi 和房间状态"
         }
+    }
+
+    fun openInviteLink(link: String) {
+        _inviteLink.value = link
+        joinInviteLink()
+    }
+
+    fun joinInviteLink() {
+        val room = InviteLink.parse(_inviteLink.value, gameId)
+        if (room == null) {
+            _message.value = "链接无效。示例：lanmultiplayer://join?host=example.com&tcpPort=1234&udpPort=1235"
+            return
+        }
+        join(room)
     }
 
     fun createRoom() {

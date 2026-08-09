@@ -23,6 +23,7 @@ fun LanScreen(viewModel: LanViewModel) {
     val players by viewModel.players.collectAsStateWithLifecycle()
     val name by viewModel.name.collectAsStateWithLifecycle()
     val roomName by viewModel.roomName.collectAsStateWithLifecycle()
+    val inviteLink by viewModel.inviteLink.collectAsStateWithLifecycle()
     val searching by viewModel.searching.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
 
@@ -62,6 +63,25 @@ fun LanScreen(viewModel: LanViewModel) {
                         )
                         Button(onClick = viewModel::createRoom, modifier = Modifier.fillMaxWidth()) {
                             Text("创建局域网房间")
+                        }
+                    }
+                }
+            }
+            item {
+                Card(shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("链接加入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("供内网穿透、异地联机使用", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            value = inviteLink,
+                            onValueChange = viewModel::setInviteLink,
+                            label = { Text("邀请链接") },
+                            placeholder = { Text("lanmultiplayer://join?host=…&tcpPort=…") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(onClick = viewModel::joinInviteLink, modifier = Modifier.fillMaxWidth()) {
+                            Text("通过链接加入")
                         }
                     }
                 }
