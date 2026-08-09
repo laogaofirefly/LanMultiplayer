@@ -25,6 +25,7 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     val rooms = client.rooms
     val state = client.state
     val stats = client.stats
+    val players = client.players
 
     fun setName(value: String) { _name.value = value.take(24) }
     fun setRoomName(value: String) { _roomName.value = value.take(24) }

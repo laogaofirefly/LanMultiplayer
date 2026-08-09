@@ -56,6 +56,7 @@ class LanServer(
             if (hello.type != Protocol.HELLO) throw IllegalStateException("HELLO required")
             client.name = hello.payload.toString(Charsets.UTF_8).take(32)
             client.session.send(Protocol.HELLO, intBytes(client.id))
+            broadcastPlayerList()
             broadcastTcp(Protocol.RELIABLE, "join:${client.id}:${client.name}".toByteArray())
             while (scope.isActive) {
                 val message = client.session.receive()
@@ -98,6 +99,14 @@ class LanServer(
         return if (clients.containsKey(id)) id else null
     }
 
+    private suspend fun broadcastPlayerList() {
+        val players = clients.values
+            .filter { it.name.isNotBlank() }
+            .sortedBy { it.id }
+            .map { Player(it.id, it.name) }
+        broadcastTcp(Protocol.PLAYER_LIST, PlayerListCodec.encode(players))
+    }
+
     private suspend fun broadcastTcp(type: Byte, payload: ByteArray) {
         clients.values.toList().forEach { client ->
             runCatching { client.session.send(type, payload) }
@@ -108,6 +117,7 @@ class LanServer(
         clients.remove(client.id)
         udpPeers.remove(client.id)
         client.session.close()
+        scope.launch { broadcastPlayerList() }
     }
 
     fun stop() {

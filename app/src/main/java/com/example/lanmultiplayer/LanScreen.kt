@@ -20,6 +20,7 @@ fun LanScreen(viewModel: LanViewModel) {
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val players by viewModel.players.collectAsStateWithLifecycle()
     val name by viewModel.name.collectAsStateWithLifecycle()
     val roomName by viewModel.roomName.collectAsStateWithLifecycle()
     val searching by viewModel.searching.collectAsStateWithLifecycle()
@@ -35,6 +36,9 @@ fun LanScreen(viewModel: LanViewModel) {
         ) {
             item {
                 StatusCard(state, stats)
+            }
+            item {
+                PlayersCard(players, state == ConnectionState.CONNECTED)
             }
             item {
                 OutlinedTextField(
@@ -99,6 +103,22 @@ private fun StatusCard(state: ConnectionState, stats: NetworkStats) {
             Column(Modifier.weight(1f)) {
                 Text("连接状态：${stateLabel(state)}", fontWeight = FontWeight.Bold)
                 Text("RTT ${stats.rttMs.coerceAtLeast(0)} ms  ·  ↑${stats.sent}  ↓${stats.received}", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayersCard(players: List<Player>, connected: Boolean) {
+    Card(shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("当前房间玩家（${players.size}）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            when {
+                !connected -> Text("加入房间后可查看玩家列表", style = MaterialTheme.typography.bodySmall)
+                players.isEmpty() -> Text("正在获取玩家列表…", style = MaterialTheme.typography.bodySmall)
+                else -> players.forEachIndexed { index, player ->
+                    Text("${index + 1}. ${player.name}", style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     }

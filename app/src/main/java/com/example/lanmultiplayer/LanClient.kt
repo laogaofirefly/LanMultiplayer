@@ -20,12 +20,14 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     private val _rooms = MutableStateFlow<List<Room>>(emptyList())
     private val _stats = MutableStateFlow(NetworkStats())
+    private val _players = MutableStateFlow<List<Player>>(emptyList())
     private val _reliable = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 128)
     private val _realtime = MutableSharedFlow<NetworkMessage>(extraBufferCapacity = 256)
 
     override val state = _state.asStateFlow()
     override val rooms = _rooms.asStateFlow()
     override val stats = _stats.asStateFlow()
+    val players = _players.asStateFlow()
     override val reliableMessages = _reliable.asSharedFlow()
     override val realtimeMessages = _realtime.asSharedFlow()
 
@@ -58,8 +60,19 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     }
 
     private suspend fun tcpLoop(session: TcpSession) {
-        try { while (scope.isActive) { _reliable.emit(session.receive()); _stats.value = _stats.value.copy(received = _stats.value.received + 1) } }
-        catch (_: Exception) { if (_state.value == ConnectionState.CONNECTED) _state.value = ConnectionState.FAILED }
+        try {
+            while (scope.isActive) {
+                val message = session.receive()
+                if (message.type == Protocol.PLAYER_LIST) {
+                    _players.value = PlayerListCodec.decode(message.payload)
+                } else {
+                    _reliable.emit(message)
+                }
+                _stats.value = _stats.value.copy(received = _stats.value.received + 1)
+            }
+        } catch (_: Exception) {
+            if (_state.value == ConnectionState.CONNECTED) _state.value = ConnectionState.FAILED
+        }
     }
 
     private suspend fun udpLoop() {
@@ -74,6 +87,6 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
         _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
     }
 
-    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0 }
+    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; _players.value = emptyList() }
     override fun close() { stopDiscovery(); closeConnection(); scope.cancel(); _state.value = ConnectionState.DISCONNECTED }
 }
