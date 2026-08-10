@@ -170,6 +170,62 @@ native/
 | `RELIABLE` | 10 | 游戏可靠消息 |
 | `REALTIME` | 11 | 游戏实时 UDP 数据 |
 
+## 对外联机接口
+
+除 NSD 局域网发现外，SDK 还提供 `ExternalMultiplayerApi`，可用于通过公网 IP、DNS 域名或内网穿透地址加入房间。
+
+```kotlin
+val client = LanClient(
+    context = context,
+    gameId = "com.example.game",
+    gameVersion = 1
+)
+
+val connected = client.joinExternal(
+    endpoint = ExternalRoomEndpoint(
+        host = "play.example.com", // 也可以是公网 IPv4 / IPv6 地址
+        tcpPort = 24567,
+        udpPort = 24568,
+        gameId = "com.example.game",
+        gameVersion = 1,
+        mode = SyncMode.REALTIME_STATE
+    ),
+    playerName = "Player1"
+)
+```
+
+### `ExternalRoomEndpoint` 参数
+
+| 参数 | 说明 |
+|---|---|
+| `host` | 域名、公网 IPv4 或 IPv6 地址；国际化域名会转为 ASCII 形式。IPv6 字面量可带或不带方括号。 |
+| `tcpPort` | 对外暴露的 TCP 端口，范围 `1..65535`。 |
+| `udpPort` | 对外暴露的 UDP 端口；默认与 `tcpPort` 相同。 |
+| `gameId` | 必须和 `LanClient` 初始化时的 `gameId` 一致。 |
+| `gameVersion` | 必须和客户端版本一致，用于阻止不兼容协议接入。 |
+| `mode` | 房间同步模式信息。 |
+
+接口会在建立连接前校验端点、游戏标识、版本和玩家名。UDP 端口无效时，客户端会回退到 TCP 端口，便于兼容 TCP/UDP 共端口的穿透服务。
+
+### 公网部署要求
+
+1. 将房主的 TCP、UDP 端口通过路由器端口转发或内网穿透服务映射到外部；
+2. 确保穿透服务同时转发 **TCP 与 UDP**；
+3. 客户端使用映射后的域名/IP 和端口调用 `joinExternal`；
+4. 建议设置防火墙规则，只开放实际使用的端口。
+
+> **安全提示：** 当前协议的原始 TCP/UDP 载荷未加密，也没有身份认证和防篡改保证。不要将其直接用于不可信公网中的敏感数据或正式对战。建议通过 WireGuard、Tailscale、带访问控制的安全隧道等加密网络承载流量。生产环境应进一步实现 TLS、认证握手、短期会话令牌、UDP 地址绑定与消息完整性校验。
+
+## 安全性与稳定性
+
+- 客户端与服务端会验证 `gameId`、`gameVersion`、端口范围和玩家名；玩家名最长 32 字符，控制字符会被拒绝。
+- 服务端达到 `maxPlayers` 上限时会立即拒绝新的 TCP 连接，降低资源耗尽风险。
+- TCP 连接启用 `TCP_NODELAY`、`keepAlive` 和 30 秒读取超时；首次 `HELLO` 必须在 5 秒内完成。
+- TCP 心跳每 2 秒发起一次；连续 8 秒未收到 `PONG` 时客户端会断开并标记连接失败。
+- UDP 数据包有固定协议头、1200 字节载荷上限与严格长度检查；不合法、截断或带有额外尾部数据的包会被丢弃。
+- 客户端和服务端都使用序列窗口过滤重复、乱序与过期 UDP 包，并支持 32 位序列号回绕。
+- Native C++ 序列比较无法加载时，自动使用 Kotlin 等价回退实现，保证不同 ABI 或打包场景下的运行兼容性。
+
 ## 当前限制与后续建议
 
 - 未完成账户认证、房间密码、加密通信、防作弊和访问控制。
