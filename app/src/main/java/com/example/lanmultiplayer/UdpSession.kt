@@ -7,8 +7,9 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 
 class UdpSession(host: String, private val port: Int) {
-    private val socket = DatagramSocket().apply {
+    private val socket = DatagramSocket(null).apply {
         reuseAddress = true
+        bind(null)
         sendBufferSize = 512 * 1024
         receiveBufferSize = 512 * 1024
     }

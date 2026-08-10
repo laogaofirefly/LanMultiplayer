@@ -188,7 +188,9 @@ val connected = client.joinExternal(
         udpPort = 24568,
         gameId = "com.example.game",
         gameVersion = 1,
-        mode = SyncMode.REALTIME_STATE
+        mode = SyncMode.REALTIME_STATE,
+        connectTimeoutMs = 8_000, // 穿透/公网链路建议 5～10 秒
+        maxConnectAttempts = 3    // 短暂 DNS 或隧道波动时自动重试
     ),
     playerName = "Player1"
 )
@@ -204,6 +206,8 @@ val connected = client.joinExternal(
 | `gameId` | 必须和 `LanClient` 初始化时的 `gameId` 一致。 |
 | `gameVersion` | 必须和客户端版本一致，用于阻止不兼容协议接入。 |
 | `mode` | 房间同步模式信息。 |
+| `connectTimeoutMs` | 单次 TCP 建连超时，范围 `1000..30000` ms；默认 `8000` ms，更适合穿透服务。 |
+| `maxConnectAttempts` | 瞬时网络/DNS/隧道失败后的总连接尝试次数，范围 `1..5`；默认 `3` 次，采用短暂递增退避。 |
 
 接口会在建立连接前校验端点、游戏标识、版本和玩家名。UDP 端口无效时，客户端会回退到 TCP 端口，便于兼容 TCP/UDP 共端口的穿透服务。
 
@@ -213,6 +217,7 @@ val connected = client.joinExternal(
 2. 确保穿透服务同时转发 **TCP 与 UDP**；
 3. 客户端使用映射后的域名/IP 和端口调用 `joinExternal`；
 4. 建议设置防火墙规则，只开放实际使用的端口。
+5. 部分 NAT/隧道会在空闲后回收 UDP 映射；SDK 会每 15 秒发送一次轻量 UDP 注册包，保持映射并让服务端重新学习客户端的外网地址。
 
 > **安全提示：** 当前协议的原始 TCP/UDP 载荷未加密，也没有身份认证和防篡改保证。不要将其直接用于不可信公网中的敏感数据或正式对战。建议通过 WireGuard、Tailscale、带访问控制的安全隧道等加密网络承载流量。生产环境应进一步实现 TLS、认证握手、短期会话令牌、UDP 地址绑定与消息完整性校验。
 

@@ -15,10 +15,12 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     private var receiveJob: Job? = null
     private var udpJob: Job? = null
     private var heartbeatJob: Job? = null
+    private var udpKeepAliveJob: Job? = null
     @Volatile private var lastPongAt = 0L
     private val sequence = AtomicInteger()
     private var playerId = 0
     private var latestUdpSequence = -1
+    @Volatile private var externalConnectTimeoutMs = 3_000
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
     private val _rooms = MutableStateFlow<List<Room>>(emptyList())
@@ -51,7 +53,7 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
         if (room.gameId != gameId || room.gameVersion != gameVersion || !isValidPlayerName(playerName)) return false
         closeConnection(); _state.value = ConnectionState.CONNECTING
         return runCatching {
-            val session = TcpSession.connect(room.host, room.tcpPort)
+            val session = TcpSession.connect(room.host, room.tcpPort, externalConnectTimeoutMs)
             tcp = session; udp = UdpSession(room.host, room.udpPort.takeIf { it in 1..65535 } ?: room.tcpPort)
             session.send(Protocol.HELLO, playerName.take(32).toByteArray())
             val welcome = withTimeout(5000) { session.receive() }
@@ -63,13 +65,21 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
             udpJob = scope.launch { udpLoop() }
             lastPongAt = System.currentTimeMillis()
             heartbeatJob = scope.launch { heartbeatLoop(session) }
+            udpKeepAliveJob = scope.launch { udpKeepAliveLoop() }
             true
         }.getOrElse { closeConnection(); _state.value = ConnectionState.FAILED; false }
     }
 
     override suspend fun joinExternal(endpoint: ExternalRoomEndpoint, playerName: String): Boolean {
         val accepted = endpoint.gameId == gameId && endpoint.gameVersion == gameVersion && isValidPlayerName(playerName)
-        return accepted && join(endpoint.normalized().toRoom(), playerName)
+        if (!accepted) return false
+        val normalized = endpoint.normalized()
+        externalConnectTimeoutMs = normalized.connectTimeoutMs
+        repeat(normalized.maxConnectAttempts) { attempt ->
+            if (join(normalized.toRoom(), playerName)) return true
+            if (attempt + 1 < normalized.maxConnectAttempts) delay(300L * (attempt + 1))
+        }
+        return false
     }
 
     private fun isValidPlayerName(name: String): Boolean =
@@ -118,6 +128,15 @@ Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
         }
     }
 
+    private suspend fun udpKeepAliveLoop() {
+        while (scope.isActive && _state.value == ConnectionState.CONNECTED) {
+            runCatching {
+                udp?.send(Protocol.HELLO, sequence.getAndIncrement(), 0, ByteBuffer.allocate(4).putInt(playerId).array())
+            }
+            delay(15_000)
+        }
+    }
+
     private suspend fun udpLoop() {
         while (scope.isActive) {
             val packet = udp?.receive() ?: continue
@@ -145,6 +164,6 @@ Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
         _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
     }
 
-    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; latestUdpSequence = -1; _players.value = emptyList(); _chatMessages.value = emptyList() }
+    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); udpKeepAliveJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; latestUdpSequence = -1; _players.value = emptyList(); _chatMessages.value = emptyList() }
     override fun close() { stopDiscovery(); closeConnection(); scope.cancel(); _state.value = ConnectionState.DISCONNECTED }
 }

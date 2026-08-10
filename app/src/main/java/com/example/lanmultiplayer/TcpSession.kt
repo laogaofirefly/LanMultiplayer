@@ -47,13 +47,14 @@ class TcpSession private constructor(private val socket: Socket) {
     companion object {
         fun fromSocket(socket: Socket): TcpSession = TcpSession(socket)
 
-        suspend fun connect(host: String, port: Int): TcpSession = withContext(Dispatchers.IO) {
+        suspend fun connect(host: String, port: Int, timeoutMs: Int = 3_000): TcpSession = withContext(Dispatchers.IO) {
+            require(port in 1..65535 && timeoutMs in 1_000..30_000)
             Socket().apply {
                 tcpNoDelay = true
                 keepAlive = true
                 receiveBufferSize = 256 * 1024
                 sendBufferSize = 256 * 1024
-                connect(InetSocketAddress(host, port), 3000)
+                connect(InetSocketAddress(host, port), timeoutMs)
             }.let(::TcpSession)
         }
     }
