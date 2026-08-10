@@ -733,6 +733,70 @@ LOCKSTEP 只适合满足下列前提的游戏：
 - 不要把密码、Access Token、用户隐私或长期密钥放入聊天、UDP 实时包或公开邀请链接；
 - 提交前运行 `git diff --check`；推送后以 GitHub Actions 云端构建结果为准；
 - 新功能应至少补充一条 README 使用方式、失败行为和真机联调步骤。
+## GitHub Actions 工作流
+
+项目将构建和自动检查交给 GitHub Actions 执行，**不要求本地安装 Android SDK、NDK 或 Gradle**。
+
+工作流位于：
+
+```text
+.github/workflows/android.yml
+.github/workflows/quality.yml
+.github/workflows/security.yml
+```
+
+### Android Build
+
+`Android Build` 用于编译可安装的 Debug APK：
+
+- 触发：推送到 `main`、向 `main` 发起 Pull Request，或手动运行；
+- 环境：Ubuntu、Temurin JDK 17；
+- Android SDK：API 36、Build Tools 36.0.0；
+- NDK：25.2.9519653；
+- CMake：3.22.1；
+- Gradle：9.1.0；
+- 产物：`LanMultiplayer-debug-apk`；
+- APK 路径：`app/build/outputs/apk/debug/app-debug.apk`。
+
+使用方式：
+
+1. 打开 GitHub 仓库的 **Actions** 页面；
+2. 选择 **Android Build**；
+3. 打开最新一次成功的运行记录；
+4. 在 **Artifacts** 中下载 `LanMultiplayer-debug-apk`；
+5. 解压后将 APK 安装到 Android 真机进行双设备联调。
+
+### Quality Checks
+
+`Quality Checks` 是代码质量与工程验证工作流，不是单独的 APK 下载任务。它会执行：
+
+- Gradle `test`；
+- Android `lint`；
+- `assembleDebug` 编译验证；
+- 上传 `quality-reports` 报告产物（若有）。
+
+判断方式：
+
+| 工作流结果 | 含义 |
+|---|---|
+| `Android Build` 成功 | Debug APK 已成功编译，可下载测试 |
+| `Quality Checks` 成功 | 测试、Lint 和编译质量检查通过 |
+| `Security Checks` 成功 | 密钥扫描及适用的依赖检查通过 |
+
+`Android Build` 成功是“能否下载 APK”的主要判断条件；推荐三个工作流都通过后再进行真机联调。
+
+### Security Checks
+
+`Security Checks` 当前包括：
+
+- Gitleaks 敏感信息扫描；
+- Pull Request 上的依赖变更检查。
+
+这些检查不能替代完整的安全审计。项目仍然不是生产级公网对战安全方案，尤其不要在未配置可信隧道或完整认证保护的情况下传输账号令牌、隐私数据或高价值资产。
+
+### 本地构建说明
+
+本项目的验收以 GitHub Actions 云端构建为准。开发者不需要为了验证 APK 在本地配置 Gradle、Android SDK 或 NDK；如果本地环境缺少这些组件，直接查看 Actions 日志即可，不应将本地构建失败当作云端构建结论。
 
 ## License
 
