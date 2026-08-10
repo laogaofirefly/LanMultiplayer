@@ -59,7 +59,9 @@ class TcpSession private constructor(
         }
     }
 
-    override fun close() = runCatching { socket.close() }
+    override fun close() {
+        runCatching { socket.close() }
+    }
 
     companion object {
         fun fromSocket(socket: Socket): TcpSession = TcpSession(socket, socket.getInputStream(), socket.getOutputStream(), false)

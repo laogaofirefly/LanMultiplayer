@@ -25,7 +25,7 @@ internal object PskTls {
     private val identity = "lanmultiplayer-v1".toByteArray(Charsets.US_ASCII)
 
     fun client(input: InputStream, output: OutputStream, roomToken: String): Pair<InputStream, OutputStream> {
-        val protocol = TlsClientProtocol(input, output, random)
+        val protocol = TlsClientProtocol(input, output)
         protocol.connect(object : PSKTlsClient(BcTlsCrypto(random), object : TlsPSKIdentity {
             override fun skipIdentityHint() = Unit
             override fun notifyIdentityHint(pskIdentityHint: ByteArray?) = Unit
@@ -36,7 +36,7 @@ internal object PskTls {
     }
 
     fun server(input: InputStream, output: OutputStream, roomToken: String): Pair<InputStream, OutputStream> {
-        val protocol = TlsServerProtocol(input, output, random)
+        val protocol = TlsServerProtocol(input, output)
         protocol.accept(object : PSKTlsServer(BcTlsCrypto(random), object : TlsPSKIdentityManager {
             override fun getHint(): ByteArray = identity.copyOf()
             override fun getPSK(pskIdentity: ByteArray): ByteArray? =

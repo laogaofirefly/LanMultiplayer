@@ -21,14 +21,14 @@ internal object UdpOnlySession {
                 while (true) {
                     val packet = udp.receive() ?: continue
                     if (packet.type == Protocol.UDP_WELCOME && packet.sequence == sequence && packet.payload.size == 4) {
-                        return@withTimeoutOrNull packet
+                        return@withTimeoutOrNull packet.payload
                     }
                 }
             }
             if (welcome != null) {
-                val id = ByteBuffer.wrap(welcome.payload).int
+                val id = ByteBuffer.wrap(welcome).int
                 if (id > 0) {
-                    udp.send(Protocol.UDP_ACK, sequence, 0, welcome.payload)
+                    udp.send(Protocol.UDP_ACK, sequence, 0, welcome)
                     return id
                 }
             }

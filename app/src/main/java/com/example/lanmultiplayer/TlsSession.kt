@@ -25,7 +25,7 @@ internal class TlsSession private constructor(private val socket: SSLSocket) : F
     private val input = BufferedInputStream(socket.inputStream)
     private val output = BufferedOutputStream(socket.outputStream)
 
-    suspend fun send(type: Byte, payload: ByteArray) = withContext(Dispatchers.IO) {
+    override suspend fun send(type: Byte, payload: ByteArray) = withContext(Dispatchers.IO) {
         require(payload.size <= 1024 * 1024)
         val body = ByteBuffer.allocate(1 + payload.size).put(type).put(payload).array()
         synchronized(output) {
@@ -35,7 +35,7 @@ internal class TlsSession private constructor(private val socket: SSLSocket) : F
         }
     }
 
-    suspend fun receive(): NetworkMessage = withContext(Dispatchers.IO) {
+    override suspend fun receive(): NetworkMessage = withContext(Dispatchers.IO) {
         val lengthBytes = ByteArray(4)
         readFully(lengthBytes)
         val length = ByteBuffer.wrap(lengthBytes).int
@@ -54,7 +54,9 @@ internal class TlsSession private constructor(private val socket: SSLSocket) : F
         }
     }
 
-    fun close() = runCatching { socket.close() }
+    override fun close() {
+        runCatching { socket.close() }
+    }
 
     companion object {
         suspend fun connect(host: String, port: Int, timeoutMs: Int, pinnedCertificateSha256: String): TlsSession =
