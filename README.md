@@ -786,20 +786,21 @@ LOCKSTEP 只适合满足下列前提的游戏：
 - 玩家名称按 UTF‑8 字节数安全截断，避免中文、表情等多字节字符被截断成无效编码；
 - 保留 Native 序列比较的可选加速和 Kotlin 回退，不把 NDK/JNI 作为宿主项目的强制接入条件；
 - 核心 API 不依赖 Compose，兼容普通 View、游戏引擎、Service、ViewModel 和纯 Kotlin 业务层；
-- 网络资源继续采用显式 `close()`、协程取消和 application-scoped Context 管理。
+- 网络资源继续采用显式 `close()`、协程取消和 application-scoped Context 管理；
+- 增加 Gradle JVM 内存配置，降低 GitHub Actions 在 D8 合并阶段发生 Java heap space 的概率。
 
-所有优化仍需通过 GitHub Actions 的 Android Build、Quality Checks 和 Security Checks，并结合多款 Android 真机验证后，才能确认最终兼容性。
+这些内容属于当前原型实现，不代表已经完成全部真机、弱网或公网环境验证。
 
 ## GitHub Actions 工作流
 
-项目将构建和自动检查交给 GitHub Actions 执行，**不要求本地安装 Android SDK、NDK 或 Gradle**。
+项目暂时只保留 GitHub Actions 的 Debug APK 构建流程，不自动执行质量检查或安全检查。
 
 工作流位于：
 
 ```text
-.github/workflows/android.yml
-.github/workflows/quality.yml
-.github/workflows/security.yml
+.github/workflows/android.yml       # 自动构建 Debug APK
+.github/workflows/quality.yml       # 已停用，仅保留手动占位
+.github/workflows/security.yml      # 已停用，仅保留手动占位
 ```
 
 ### Android Build
@@ -823,37 +824,62 @@ LOCKSTEP 只适合满足下列前提的游戏：
 4. 在 **Artifacts** 中下载 `LanMultiplayer-debug-apk`；
 5. 解压后将 APK 安装到 Android 真机进行双设备联调。
 
-### Quality Checks
+### 构建内存配置
 
-`Quality Checks` 是代码质量与工程验证工作流，不是单独的 APK 下载任务。它会执行：
+仓库根目录的 `gradle.properties` 当前包含：
 
-- Gradle `test`；
-- Android `lint`；
-- `assembleDebug` 编译验证；
-- 上传 `quality-reports` 报告产物（若有）。
+```properties
+org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+org.gradle.workers.max=2
+```
 
-判断方式：
+该配置用于限制并行任务数量并提高 Gradle/D8 可用堆内存，解决 Debug APK 在 `mergeExtDexDebug` 阶段可能出现的 `OutOfMemoryError`。
 
-| 工作流结果 | 含义 |
+### 已停用的自动检查
+
+`Quality Checks` 和 `Security Checks` 当前不会在推送或 Pull Request 时自动运行，也不会执行测试、Lint、依赖审查或敏感信息扫描。两个工作流文件仅作为后续恢复入口保留，并不代表当前项目已经完成相应验证。
+
+因此，当前阶段的验收标准只有：
+
+| 结果 | 含义 |
 |---|---|
 | `Android Build` 成功 | Debug APK 已成功编译，可下载测试 |
-| `Quality Checks` 成功 | 测试、Lint 和编译质量检查通过 |
-| `Security Checks` 成功 | 密钥扫描及适用的依赖检查通过 |
-
-`Android Build` 成功是“能否下载 APK”的主要判断条件；推荐三个工作流都通过后再进行真机联调。
-
-### Security Checks
-
-`Security Checks` 当前包括：
-
-- Gitleaks 敏感信息扫描；
-- Pull Request 上的依赖变更检查。
-
-这些检查不能替代完整的安全审计。项目仍然不是生产级公网对战安全方案，尤其不要在未配置可信隧道或完整认证保护的情况下传输账号令牌、隐私数据或高价值资产。
+| `Android Build` 失败 | 根据 Actions 日志修复构建问题 |
+| `Quality Checks` / `Security Checks` | 当前不参与自动验收 |
 
 ### 本地构建说明
 
-本项目的验收以 GitHub Actions 云端构建为准。开发者不需要为了验证 APK 在本地配置 Gradle、Android SDK 或 NDK；如果本地环境缺少这些组件，直接查看 Actions 日志即可，不应将本地构建失败当作云端构建结论。
+项目优先使用 GitHub Actions 构建 APK，不要求本地预先安装 Android SDK、NDK 或 Gradle。若本地环境具备完整 Android 开发环境，也可以使用标准 Gradle 命令构建：
+
+```bash
+./gradlew --no-daemon assembleDebug
+```
+
+本地或云端构建只负责确认 APK 能否生成，不代表已经完成真机兼容性、网络质量或生产安全验证。
+
+## 项目当前状态
+
+项目目前暂时停在 SDK 原型阶段，适合继续进行代码阅读、接口设计和局域网双设备验证，不建议直接作为生产级公网联机服务使用。
+
+当前已具备：
+
+- Android Compose 示例界面；
+- 局域网 NSD/mDNS 房间发现；
+- TCP 房间控制、玩家列表和聊天；
+- UDP 实时数据通道；
+- 公网/域名/内网穿透端点接入接口；
+- 邀请链接 Deep Link；
+- 基础连接状态、心跳、序列窗口和资源释放逻辑；
+- GitHub Actions Debug APK 构建。
+
+当前仍需后续产品化的内容：
+
+- 独立 Android Library/AAR 发布；
+- 完整账号认证、权限控制和会话管理；
+- DTLS/UDP 加密、中继和 NAT 穿透方案；
+- 房主迁移、权威服务器和完整断线恢复；
+- 真实设备矩阵、弱网、功耗和后台运行验证；
+- 游戏自身的输入、状态、同步、回放和反作弊逻辑。
 
 ## License
 
