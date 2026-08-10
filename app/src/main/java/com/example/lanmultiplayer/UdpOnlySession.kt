@@ -17,13 +17,14 @@ internal object UdpOnlySession {
         val joinPayload = runCatching { Protocol.encodeUdpJoin(roomToken, playerName) }.getOrNull() ?: return null
         repeat(JOIN_ATTEMPTS) {
             udp.send(Protocol.UDP_JOIN, sequence, 0, joinPayload)
-            val welcome = withTimeoutOrNull(JOIN_RETRY_MS) {
+            val welcome: ByteArray? = withTimeoutOrNull(JOIN_RETRY_MS) {
                 while (true) {
                     val packet = udp.receive() ?: continue
                     if (packet.type == Protocol.UDP_WELCOME && packet.sequence == sequence && packet.payload.size == 4) {
-                        return@withTimeoutOrNull packet.payload
+                        return@withTimeoutOrNull packet.payload.copyOf()
                     }
                 }
+                null
             }
             if (welcome != null) {
                 val id = ByteBuffer.wrap(welcome).int
