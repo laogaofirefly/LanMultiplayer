@@ -163,6 +163,49 @@ if (joined) {
 
 `gameId` 和 `gameVersion` 是兼容性边界：客户端仅应加入相同游戏标识和协议版本的房间。
 
+### 推荐的通用接入入口
+
+为了减少不同 Android 项目之间的接入差异，推荐使用 `LanMultiplayerSdk` 工厂，而不是直接在 Activity 中创建网络对象：
+
+```kotlin
+val options = LanMultiplayerOptions(
+    gameId = BuildConfig.APPLICATION_ID,
+    gameVersion = 1,
+    enableAutoReconnect = true
+)
+
+val client = LanMultiplayerSdk.createClient(applicationContext, options)
+val capabilities = LanMultiplayerSdk.capabilities()
+
+// API 33+ 应先由宿主应用申请附近 Wi‑Fi 权限；API 23–32 不需要该运行时权限。
+val permissions = LanMultiplayerSdk.discoveryPermissions()
+```
+
+兼容性设计：
+
+- 工厂自动使用 `applicationContext`，避免 Activity 重建造成网络对象泄漏；
+- 默认启用自动重连，可通过 `LanMultiplayerOptions` 关闭或配置退避策略；
+- `capabilities()` 提供 API level、附近 Wi‑Fi 权限和前台数据同步能力信息，宿主项目可据此降级 UI 或功能；
+- Native 序列比较只是可选加速，失败时会回退到 Kotlin 实现，不应把 JNI 当作接入前提；
+- 不依赖 Compose，普通 Views、游戏引擎、Service、ViewModel 或其他 Kotlin/Java Android 项目均可调用核心 API；
+- 游戏显示名可通过 `LanMultiplayerSdk.normalizePlayerName()` 做统一清理。
+
+房间配置也可以使用便捷 Builder：
+
+```kotlin
+val config = RoomConfigBuilder("我的房间", BuildConfig.APPLICATION_ID)
+    .gameVersion(1)
+    .maxPlayers(8)
+    .mode(SyncMode.REALTIME_STATE)
+    .trustedLan()
+    .build()
+
+// 公网或不可信网络应改用：
+// .secureWithToken(generateRandomTokenAtLeast16Chars())
+```
+
+> 当前仓库仍是 APK 示例工程。若作为正式 SDK 分发，下一步应将核心网络代码拆分为独立 Android Library module，发布 AAR，并让宿主项目自行提供 UI、Manifest 合并策略和权限请求逻辑。
+
 ## 对外联机 API
 
 当不使用 NSD 局域网发现时，可使用 `ExternalMultiplayerApi.joinExternal()` 连接公网 IP、DNS 域名或内网穿透端点。
