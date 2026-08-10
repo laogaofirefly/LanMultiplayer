@@ -1,15 +1,13 @@
 package com.example.lanmultiplayer
 
 import kotlinx.coroutines.*
-import java.util.concurrent.ConcurrentLinkedQueue
-
 class GameSyncEngine(
     private val client: LanMultiplayer,
     private val adapter: GameAdapter,
-    private val tickRate: Int = 30
+    tickRate: Int = 30
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val inputs = ConcurrentLinkedQueue<ByteArray>()
+    private val tickRate = tickRate.coerceIn(1, 120)
     private var frame = 0
 
     fun start() {
@@ -23,12 +21,16 @@ class GameSyncEngine(
             }
         }
         scope.launch {
-            val interval = 1000L / tickRate.coerceIn(1, 120)
+            val intervalNanos = 1_000_000_000L / tickRate
+            var nextTick = System.nanoTime()
             while (isActive) {
                 val input = adapter.encodeInput()
                 adapter.predictInput(input)
                 client.sendRealtime(input, frame++)
-                delay(interval)
+                nextTick += intervalNanos
+                // Monotonic time prevents clock changes from causing simulation bursts.
+                delay(((nextTick - System.nanoTime()).coerceAtLeast(0L)) / 1_000_000L)
+                if (System.nanoTime() - nextTick > intervalNanos * 4) nextTick = System.nanoTime()
             }
         }
     }

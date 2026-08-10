@@ -15,16 +15,18 @@ object Protocol {
     const val RELIABLE: Byte = 10
     const val REALTIME: Byte = 11
 
+    private const val UDP_HEADER_SIZE = 14
+
     fun encodeUdp(type: Byte, sequence: Int, frame: Int, payload: ByteArray): ByteArray {
         require(payload.size <= MAX_PAYLOAD) { "UDP payload too large" }
-        return ByteBuffer.allocate(2 + 1 + 1 + 4 + 4 + 2 + payload.size)
+        return ByteBuffer.allocate(UDP_HEADER_SIZE + payload.size)
             .putShort(MAGIC).put(VERSION).put(type)
             .putInt(sequence).putInt(frame)
             .putShort(payload.size.toShort()).put(payload).array()
     }
 
     fun decodeUdp(data: ByteArray, length: Int): UdpPacket? {
-        if (length < 18) return null
+        if (length < UDP_HEADER_SIZE) return null
         val b = ByteBuffer.wrap(data, 0, length)
         if (b.short != MAGIC || b.get() != VERSION) return null
         val type = b.get()

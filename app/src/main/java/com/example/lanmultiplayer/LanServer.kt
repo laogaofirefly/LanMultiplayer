@@ -29,7 +29,10 @@ private val config: RoomConfig,
     @Volatile private var running = false
     private val inboundSequences = SequenceWindow()
     private val _players = MutableStateFlow<List<Player>>(emptyList())
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val players = _players.asStateFlow()
+    /** Host UI subscribes here because the host is not a TCP client of its own room. */
+    val chatMessages = _chatMessages.asStateFlow()
 
     val actualTcpPort: Int get() = tcp?.localPort ?: 0
     val actualUdpPort: Int get() = udp?.localPort ?: 0
@@ -74,7 +77,11 @@ private val config: RoomConfig,
 Protocol.RELIABLE -> broadcastTcp(Protocol.RELIABLE, message.payload)
                      Protocol.CHAT -> {
                          val text = message.payload.toString(Charsets.UTF_8).trim().take(300)
-                         if (text.isNotEmpty()) broadcastTcp(Protocol.CHAT, ChatCodec.encode(ChatMessage(client.name, text)))
+                         if (text.isNotEmpty()) {
+                              val chat = ChatMessage(client.name, text)
+                              appendChat(chat)
+                              broadcastTcp(Protocol.CHAT, ChatCodec.encode(chat))
+                          }
                      }
                      Protocol.PING -> client.session.send(Protocol.PONG, message.payload)
                 }
@@ -121,6 +128,18 @@ Protocol.RELIABLE -> broadcastTcp(Protocol.RELIABLE, message.payload)
             .map { Player(it.id, it.name) }
         _players.value = players
         broadcastTcp(Protocol.PLAYER_LIST, PlayerListCodec.encode(players))
+    }
+
+    private fun appendChat(chat: ChatMessage) {
+        _chatMessages.value = (_chatMessages.value + chat).takeLast(100)
+    }
+
+    suspend fun sendHostChat(text: String) {
+        val normalized = ChatCodec.encodeClientText(text)
+        if (!running || normalized.isEmpty()) return
+        val chat = ChatMessage(hostPlayerName.ifBlank { "房主" }.take(32), normalized.toString(Charsets.UTF_8))
+        appendChat(chat)
+        broadcastTcp(Protocol.CHAT, ChatCodec.encode(chat))
     }
 
     private suspend fun broadcastTcp(type: Byte, payload: ByteArray) {

@@ -26,7 +26,35 @@ data class RoomConfig(
 )
 
 data class NetworkMessage(val type: Byte, val payload: ByteArray)
-data class NetworkStats(val rttMs: Long = -1, val sent: Long = 0, val received: Long = 0)
+
+/**
+ * Transport telemetry. TCP and UDP counters are separate because a healthy TCP
+ * control channel does not imply that the UDP realtime path is available.
+ */
+data class NetworkStats(
+    val rttMs: Long = -1,
+    val sent: Long = 0,
+    val received: Long = 0,
+    val udpSent: Long = 0,
+    val udpReceived: Long = 0,
+    /** Estimated missing UDP sequence numbers. This is an estimate, not a wire-level ACK result. */
+    val udpEstimatedLost: Long = 0
+) {
+    val udpLossPercent: Double
+        get() {
+            val total = udpReceived + udpEstimatedLost
+            return if (total == 0L) 0.0 else udpEstimatedLost * 100.0 / total
+        }
+}
+
+/** Explicit room admission policy. Account verification requires an application backend. */
+data class RoomAccessPolicy(
+    val requiresPassword: Boolean = false,
+    val requiresAuthenticatedIdentity: Boolean = false,
+    val allowGuests: Boolean = true
+) {
+    init { require(!requiresAuthenticatedIdentity || !allowGuests) }
+}
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, FAILED }
 

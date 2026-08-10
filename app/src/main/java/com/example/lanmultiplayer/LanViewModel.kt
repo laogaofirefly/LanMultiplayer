@@ -31,9 +31,15 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     val state = client.state
     val stats = client.stats
     private val _hostPlayers = MutableStateFlow<List<Player>>(emptyList())
+    private val _hostChatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val players = combine(client.players, _hostPlayers) { clientPlayers, hostPlayers ->
         if (hostPlayers.isNotEmpty()) hostPlayers else clientPlayers
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val roomChatMessages = combine(client.chatMessages, _hostChatMessages, _hostPlayers) { clientMessages, hostMessages, hostPlayers ->
+        if (hostPlayers.isNotEmpty()) hostMessages else clientMessages
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val isHosting = _hostPlayers.map { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun setName(value: String) { _name.value = value.take(24) }
     fun setRoomName(value: String) { _roomName.value = value.take(24) }
@@ -43,12 +49,15 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     fun sendChat() {
         val text = _chatInput.value.trim()
         if (text.isEmpty()) return
-        if (client.state.value != ConnectionState.CONNECTED) {
+        val activeServer = server
+        val hosting = activeServer != null && _hostPlayers.value.isNotEmpty()
+        if (!hosting && client.state.value != ConnectionState.CONNECTED) {
             _message.value = "请先加入房间后再发送消息"
             return
         }
         viewModelScope.launch {
-            client.sendChat(text)
+            if (hosting) activeServer?.sendHostChat(text)
+            else client.sendChat(text)
             _chatInput.value = ""
         }
     }
@@ -89,11 +98,13 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             server?.stop()
             _hostPlayers.value = emptyList()
+            _hostChatMessages.value = emptyList()
             server = LanServer(getApplication(), RoomConfig(_roomName.value, gameId, mode = SyncMode.REALTIME_STATE), _name.value)
             runCatching { server?.start() }
                 .onSuccess {
                     server?.let { activeServer ->
                         viewModelScope.launch { activeServer.players.collect { _hostPlayers.value = it } }
+                        viewModelScope.launch { activeServer.chatMessages.collect { _hostChatMessages.value = it } }
                     }
                     _message.value = "房间已创建，正在广播"
                 }

@@ -19,7 +19,7 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     @Volatile private var lastPongAt = 0L
     private val sequence = AtomicInteger()
     private var playerId = 0
-    private var latestUdpSequence = -1
+    private var latestUdpSequence: Int? = null
     @Volatile private var externalConnectTimeoutMs = 3_000
 
     private val _state = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -140,10 +140,16 @@ Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
     private suspend fun udpLoop() {
         while (scope.isActive) {
             val packet = udp?.receive() ?: continue
-            if (!NativeSequenceWindow.accepts(packet.sequence, latestUdpSequence)) continue
+            val previous = latestUdpSequence
+            if (!NativeSequenceWindow.accepts(packet.sequence, previous)) continue
+            val missing = if (previous == null) 0L else unsignedSequenceGap(previous, packet.sequence)
             latestUdpSequence = packet.sequence
             _realtime.emit(NetworkMessage(packet.type, packet.payload))
-            _stats.value = _stats.value.copy(received = _stats.value.received + 1)
+            _stats.value = _stats.value.copy(
+                received = _stats.value.received + 1,
+                udpReceived = _stats.value.udpReceived + 1,
+                udpEstimatedLost = _stats.value.udpEstimatedLost + missing
+            )
         }
     }
 
@@ -161,9 +167,15 @@ Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
     override suspend fun sendRealtime(payload: ByteArray, frame: Int) {
         val body = ByteBuffer.allocate(4 + payload.size).putInt(playerId).put(payload).array()
         udp?.send(Protocol.REALTIME, sequence.getAndIncrement(), frame, body)
-        _stats.value = _stats.value.copy(sent = _stats.value.sent + 1)
+        _stats.value = _stats.value.copy(sent = _stats.value.sent + 1, udpSent = _stats.value.udpSent + 1)
     }
 
-    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); udpKeepAliveJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; latestUdpSequence = -1; _players.value = emptyList(); _chatMessages.value = emptyList() }
+    /** Number of skipped values when [newer] follows [older] in unsigned 32-bit sequence space. */
+    private fun unsignedSequenceGap(older: Int, newer: Int): Long {
+        val delta = (newer.toUInt() - older.toUInt()).toLong() and 0xffff_ffffL
+        return (delta - 1L).coerceAtLeast(0L)
+    }
+
+    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); udpKeepAliveJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; latestUdpSequence = null; _players.value = emptyList(); _chatMessages.value = emptyList() }
     override fun close() { stopDiscovery(); closeConnection(); scope.cancel(); _state.value = ConnectionState.DISCONNECTED }
 }
