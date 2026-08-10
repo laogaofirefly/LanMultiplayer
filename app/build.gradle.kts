@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.example.lanmultiplayer"
     compileSdk = 36
+    ndkVersion = "25.2.9519653"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -34,6 +35,11 @@ android {
 }
 
 dependencies {
+    // DTLS 1.2 implementation for the remote UDP transport. TLS/DTLS APIs are supplied by Bouncy Castle;
+    // do not rely on Android's platform provider because its DTLS availability varies by ROM/API level.
+    implementation("org.bouncycastle:bctls-jdk18on:1.79")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
+    // DTLS/TLS primitives are provided by the pinned 1.79 Bouncy Castle dependencies above.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")

@@ -29,6 +29,7 @@ fun LanScreen(viewModel: LanViewModel) {
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val transportMode by viewModel.transportMode.collectAsStateWithLifecycle()
     val players by viewModel.players.collectAsStateWithLifecycle()
     val chatMessages by viewModel.roomChatMessages.collectAsStateWithLifecycle()
     val name by viewModel.name.collectAsStateWithLifecycle()
@@ -50,7 +51,7 @@ fun LanScreen(viewModel: LanViewModel) {
         })
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            ConnectionBanner(state, stats, isHosting)
+            ConnectionBanner(state, stats, isHosting, transportMode)
             TabRow(selectedTabIndex = pageIndex) {
                 pages.forEachIndexed { index, page ->
                     Tab(selected = pageIndex == index, onClick = { pageIndex = index }, text = { Text(page.title) })
@@ -66,7 +67,7 @@ fun LanScreen(viewModel: LanViewModel) {
     }
 }
 
-@Composable private fun ConnectionBanner(state: ConnectionState, stats: NetworkStats, isHosting: Boolean) {
+@Composable private fun ConnectionBanner(state: ConnectionState, stats: NetworkStats, isHosting: Boolean, transportMode: TransportMode) {
     val color = when {
         isHosting -> MaterialTheme.colorScheme.primary
         state == ConnectionState.CONNECTED -> Color(0xFF247A3D)
@@ -81,18 +82,20 @@ fun LanScreen(viewModel: LanViewModel) {
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(status, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                Text(connectionDetail(state, stats, isHosting), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(connectionDetail(state, stats, isHosting, transportMode), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (state == ConnectionState.CONNECTING) Text("请稍候", style = MaterialTheme.typography.labelMedium, color = color)
         }
     }
 }
 
-private fun connectionDetail(state: ConnectionState, stats: NetworkStats, isHosting: Boolean): String = when {
+private fun connectionDetail(state: ConnectionState, stats: NetworkStats, isHosting: Boolean, transportMode: TransportMode): String = when {
     isHosting -> "本机正在等待玩家加入"
-    state == ConnectionState.CONNECTED -> "RTT ${stats.rttMs.coerceAtLeast(0)} ms · UDP 丢包 ${"%.1f".format(stats.udpLossPercent)}%"
+    state == ConnectionState.CONNECTED && transportMode == TransportMode.DUAL_CHANNEL -> "TCP 控制 + UDP 实时 · RTT ${stats.rttMs.coerceAtLeast(0)} ms · UDP 丢包 ${"%.1f".format(stats.udpLossPercent)}%"
+state == ConnectionState.CONNECTED && transportMode == TransportMode.TCP_ONLY -> "UDP 不可达，已降级为全 TCP 同步（建议限制实时同步频率）"
+    state == ConnectionState.CONNECTED && transportMode == TransportMode.UDP_ONLY -> "仅 UDP 模式：可靠消息、聊天和实时同步均通过 UDP"
     state == ConnectionState.FAILED -> "连接已中断，请返回发现页重试"
-    state == ConnectionState.CONNECTING -> "正在建立 TCP 与 UDP 会话"
+    state == ConnectionState.CONNECTING -> "正在检测 TCP 与 UDP 通道"
     else -> "创建房间、搜索局域网，或使用邀请链接"
 }
 
@@ -149,8 +152,8 @@ private fun connectionDetail(state: ConnectionState, stats: NetworkStats, isHost
             Button(onJoin, enabled = inviteLink.isNotBlank() && state != ConnectionState.CONNECTING, modifier = Modifier.fillMaxWidth()) { Text("加入远程房间") }
         } }
         item { SectionCard("链接格式") {
-            Text("lanmultiplayer://join?host=example.com&tcpPort=24567&udpPort=24568&name=远程房间", style = MaterialTheme.typography.bodySmall)
-            HorizontalDivider(); Text("TCP 用于加入、玩家列表和聊天；UDP 用于实时同步。仅映射 TCP 时，房间可以加入，但实时游戏数据无法正常工作。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("lanmultiplayer://join?host=example.com&tcpPort=24567&udpPort=24568&token=随机短期令牌&name=远程房间", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(); Text("连接后自动选择可达通道。公网房间建议设置随机短期 token；令牌会随链接传输，勿在公开场所或长期链接中暴露。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } }
         item { SectionCard("连接前检查") {
             CheckRow("确认链接中的主机名和端口来自可信房主"); CheckRow("穿透或防火墙已同时放行 TCP 与 UDP"); CheckRow("当前版本与房主的游戏版本一致"); CheckRow("不在公开链接中携带密码、令牌或隐私信息")

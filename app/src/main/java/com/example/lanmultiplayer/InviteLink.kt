@@ -9,8 +9,11 @@ object InviteLink {
         require(uri.scheme == "lanmultiplayer" && uri.host == "join") { "链接格式无效" }
         val host = uri.getQueryParameter("host")?.trim().orEmpty()
         val tcpPort = uri.getQueryParameter("tcpPort")?.toIntOrNull() ?: 0
-        val udpPort = uri.getQueryParameter("udpPort")?.toIntOrNull() ?: tcpPort
-        require(host.isNotBlank() && tcpPort in 1..65535 && udpPort in 1..65535) { "请填写有效的主机地址和端口" }
+        val udpPort = uri.getQueryParameter("udpPort")?.toIntOrNull() ?: 0
+        val roomToken = uri.getQueryParameter("token")?.trim().orEmpty()
+        require(roomToken.length <= 128 && roomToken.none { it.isISOControl() }) { "房间令牌无效" }
+        require(roomToken.isEmpty() || roomToken.length >= 16) { "加密房间令牌至少需要 16 个字符" }
+        require(host.isNotBlank() && (tcpPort in 1..65535 || udpPort in 1..65535)) { "请至少填写有效的 TCP 或 UDP 端口" }
         Room(
             name = uri.getQueryParameter("name")?.take(24)?.ifBlank { "远程房间" } ?: "远程房间",
             host = host,
@@ -20,7 +23,8 @@ object InviteLink {
             gameVersion = 1,
             players = 0,
             maxPlayers = 8,
-            mode = SyncMode.REALTIME_STATE
+            mode = SyncMode.REALTIME_STATE,
+            roomToken = roomToken
         )
     }.getOrNull()
 }

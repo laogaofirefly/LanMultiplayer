@@ -30,6 +30,7 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     val rooms = client.rooms
     val state = client.state
     val stats = client.stats
+    val transportMode = client.transportMode
     private val _hostPlayers = MutableStateFlow<List<Player>>(emptyList())
     private val _hostChatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val players = combine(client.players, _hostPlayers) { clientPlayers, hostPlayers ->
@@ -76,7 +77,15 @@ class LanViewModel(app: Application) : AndroidViewModel(app) {
     fun join(room: Room) {
         viewModelScope.launch {
             val ok = client.join(room, _name.value)
-            _message.value = if (ok) "已加入：${room.name}" else "加入失败，请检查 Wi-Fi 和房间状态"
+            _message.value = if (ok) {
+                val route = when (client.transportMode.value) {
+                    TransportMode.DUAL_CHANNEL -> "TCP + UDP"
+                    TransportMode.TCP_ONLY -> "TCP（UDP 不可达，已降级）"
+                    TransportMode.UDP_ONLY -> "UDP"
+                    else -> "TCP"
+                }
+                "已加入：${room.name} · $route"
+            } else "加入失败，请检查地址、端口映射和房主状态"
         }
     }
 

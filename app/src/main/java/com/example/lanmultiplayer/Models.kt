@@ -12,7 +12,9 @@ data class Room(
     val gameVersion: Int,
     val players: Int,
     val maxPlayers: Int,
-    val mode: SyncMode
+    val mode: SyncMode,
+    /** Enables TLS-PSK for TCP. Token-protected rooms intentionally use TCP only until encrypted UDP is wired in. */
+    val roomToken: String = ""
 )
 
 enum class SyncMode { RELIABLE, REALTIME_STATE, LOCKSTEP, CUSTOM }
@@ -22,8 +24,22 @@ data class RoomConfig(
     val gameId: String,
     val gameVersion: Int = 1,
     val maxPlayers: Int = 8,
-    val mode: SyncMode = SyncMode.REALTIME_STATE
-)
+    val mode: SyncMode = SyncMode.REALTIME_STATE,
+    /** Empty is allowed only for explicitly trusted LAN rooms. */
+    val roomToken: String = "",
+    val security: RoomSecurityPolicy = RoomSecurityPolicy(
+        mode = if (roomToken.isEmpty()) SecurityMode.TRUSTED_LAN_INSECURE else SecurityMode.SECURE,
+        maxConnections = maxPlayers
+    ),
+    val gameRuleValidator: GameRuleValidator = DefaultGameRuleValidator
+) {
+    init {
+        require(roomToken.length <= 128 && roomToken.none { it.isISOControl() })
+        if (security.mode == SecurityMode.SECURE) SessionSecurity.validateToken(roomToken)
+        require((security.mode == SecurityMode.SECURE) == roomToken.isNotEmpty()) { "Secure mode requires a roomToken; insecure mode must not carry one" }
+        require(security.maxConnections >= maxPlayers) { "security.maxConnections must cover maxPlayers" }
+    }
+}
 
 data class NetworkMessage(val type: Byte, val payload: ByteArray)
 

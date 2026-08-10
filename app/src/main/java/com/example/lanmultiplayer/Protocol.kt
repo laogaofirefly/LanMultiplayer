@@ -14,6 +14,16 @@ object Protocol {
     const val CHAT: Byte = 5
     const val RELIABLE: Byte = 10
     const val REALTIME: Byte = 11
+    /** UDP reachability probe. The server echoes this packet only after a TCP-admitted player proves its id. */
+    const val UDP_PROBE: Byte = 12
+    const val UDP_PROBE_ACK: Byte = 13
+    /** UDP-only session control. JOIN/WELCOME are retried with the same sequence until received. */
+    const val UDP_JOIN: Byte = 14
+    const val UDP_WELCOME: Byte = 15
+    const val UDP_ACK: Byte = 16
+    /** Payload is [playerId:int][application bytes]. ACK carries the corresponding sequence. */
+    const val UDP_RELIABLE: Byte = 17
+    const val UDP_CHAT: Byte = 18
 
     private const val UDP_HEADER_SIZE = 14
 
@@ -24,6 +34,24 @@ object Protocol {
             .putInt(sequence).putInt(frame)
             .putShort(payload.size.toShort()).put(payload).array()
     }
+
+    fun encodeUdpJoin(token: String, playerName: String): ByteArray {
+        val tokenBytes = token.toByteArray(Charsets.UTF_8)
+        val nameBytes = playerName.trim().take(32).toByteArray(Charsets.UTF_8)
+        require(tokenBytes.size <= 128 && nameBytes.isNotEmpty() && nameBytes.size <= 32)
+        return ByteBuffer.allocate(1 + tokenBytes.size + nameBytes.size)
+            .put(tokenBytes.size.toByte()).put(tokenBytes).put(nameBytes).array()
+    }
+
+    fun decodeUdpJoin(payload: ByteArray): Pair<String, String>? = runCatching {
+        if (payload.isEmpty()) return null
+        val tokenSize = payload[0].toInt() and 0xff
+        require(tokenSize <= 128 && payload.size > tokenSize + 1)
+        val token = payload.copyOfRange(1, 1 + tokenSize).toString(Charsets.UTF_8)
+        val name = payload.copyOfRange(1 + tokenSize, payload.size).toString(Charsets.UTF_8).trim().take(32)
+        require(name.isNotEmpty())
+        token to name
+    }.getOrNull()
 
     fun decodeUdp(data: ByteArray, length: Int): UdpPacket? {
         if (length < UDP_HEADER_SIZE) return null
