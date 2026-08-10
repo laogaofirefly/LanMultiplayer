@@ -55,10 +55,8 @@ private val config: RoomConfig,
             socket.soTimeout = 30_000
             socket.tcpNoDelay = true
             socket.keepAlive = true
-            val id = nextId.getAndIncrement()
-            val client = Client(id, socket)
-            clients[id] = client
-            scope.launch { clientLoop(client) }
+            // Admit a player only after its HELLO was validated. Half-open sockets must not consume slots.
+            scope.launch { clientLoop(Client(nextId.getAndIncrement(), socket)) }
         }
     }
 
@@ -68,6 +66,9 @@ private val config: RoomConfig,
             if (hello.type != Protocol.HELLO) throw IllegalStateException("HELLO required")
             client.name = hello.payload.toString(Charsets.UTF_8).trim().take(32)
             if (client.name.isEmpty() || client.name.any { it.isISOControl() }) throw IllegalArgumentException("Invalid player name")
+            // maxPlayers includes host player 0; publish only fully admitted clients.
+            if (clients.size >= (config.maxPlayers - 1).coerceAtLeast(0)) throw IllegalStateException("Room is full")
+            clients[client.id] = client
             client.session.send(Protocol.HELLO, intBytes(client.id))
             broadcastPlayerList()
             broadcastTcp(Protocol.RELIABLE, "join:${client.id}:${client.name}".toByteArray())

@@ -53,13 +53,18 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
         if (room.gameId != gameId || room.gameVersion != gameVersion || !isValidPlayerName(playerName)) return false
         closeConnection(); _state.value = ConnectionState.CONNECTING
         return runCatching {
-            val session = TcpSession.connect(room.host, room.tcpPort, externalConnectTimeoutMs)
-            tcp = session; udp = UdpSession(room.host, room.udpPort.takeIf { it in 1..65535 } ?: room.tcpPort)
-            session.send(Protocol.HELLO, playerName.take(32).toByteArray())
-            val welcome = withTimeout(5000) { session.receive() }
+            // NSD can expose IPv6 literals; bracketed literals are not accepted by Socket.
+            val host = room.host.removePrefix("[").removeSuffix("]").trim()
+            require(host.isNotEmpty()) { "Missing host" }
+            val session = TcpSession.connect(host, room.tcpPort, externalConnectTimeoutMs)
+            tcp = session
+            session.send(Protocol.HELLO, playerName.trim().take(32).toByteArray(Charsets.UTF_8))
+            val welcome = withTimeout(8_000) { session.receive() }
             require(welcome.type == Protocol.HELLO && welcome.payload.size >= 4)
             playerId = ByteBuffer.wrap(welcome.payload).int
-            udp?.send(Protocol.HELLO, sequence.getAndIncrement(), 0, ByteBuffer.allocate(4).putInt(playerId).array())
+            // UDP setup is best-effort: a blocked UDP route must not make a TCP join fail.
+            udp = room.udpPort.takeIf { it in 1..65535 }?.let { port -> runCatching { UdpSession(host, port) }.getOrNull() }
+            runCatching { udp?.send(Protocol.HELLO, sequence.getAndIncrement(), 0, ByteBuffer.allocate(4).putInt(playerId).array()) }
             _state.value = ConnectionState.CONNECTED
             receiveJob = scope.launch { tcpLoop(session) }
             udpJob = scope.launch { udpLoop() }
@@ -176,6 +181,11 @@ Protocol.CHAT -> ChatCodec.decode(message.payload)?.let { chat ->
         return (delta - 1L).coerceAtLeast(0L)
     }
 
-    private fun closeConnection() { receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); udpKeepAliveJob?.cancel(); tcp?.close(); udp?.close(); tcp = null; udp = null; playerId = 0; latestUdpSequence = null; _players.value = emptyList(); _chatMessages.value = emptyList() }
+    private fun closeConnection() {
+        receiveJob?.cancel(); udpJob?.cancel(); heartbeatJob?.cancel(); udpKeepAliveJob?.cancel()
+        receiveJob = null; udpJob = null; heartbeatJob = null; udpKeepAliveJob = null
+        tcp?.close(); udp?.close(); tcp = null; udp = null
+        playerId = 0; latestUdpSequence = null; _players.value = emptyList(); _chatMessages.value = emptyList()
+    }
     override fun close() { stopDiscovery(); closeConnection(); scope.cancel(); _state.value = ConnectionState.DISCONNECTED }
 }
