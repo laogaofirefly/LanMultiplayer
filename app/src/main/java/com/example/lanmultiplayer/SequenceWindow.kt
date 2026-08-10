@@ -7,7 +7,7 @@ class SequenceWindow(private val maxEntries: Int = 4096) {
 
     fun accept(playerId: Int, sequence: Int): Boolean {
         val old = latest[playerId]
-        if (old != null && sequence <= old) return false
+        if (old != null && !NativeSequenceWindow.accepts(sequence, old)) return false
         latest[playerId] = sequence
         if (latest.size > maxEntries) latest.keys.take(latest.size - maxEntries).forEach(latest::remove)
         return true

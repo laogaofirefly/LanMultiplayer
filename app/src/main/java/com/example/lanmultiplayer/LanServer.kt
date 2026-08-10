@@ -26,7 +26,8 @@ private val config: RoomConfig,
     private var tcp: ServerSocket? = null
     private var udp: DatagramSocket? = null
     private var registration: android.net.nsd.NsdManager.RegistrationListener? = null
-    private var running = false
+    @Volatile private var running = false
+    private val inboundSequences = SequenceWindow()
     private val _players = MutableStateFlow<List<Player>>(emptyList())
     val players = _players.asStateFlow()
 
@@ -35,8 +36,8 @@ private val config: RoomConfig,
 
     suspend fun start() = withContext(Dispatchers.IO) {
         if (running) return@withContext
-        tcp = ServerSocket(tcpPort)
-        udp = DatagramSocket(udpPort)
+        tcp = ServerSocket().apply { reuseAddress = true; bind(InetSocketAddress(tcpPort)) }
+        udp = DatagramSocket(null).apply { reuseAddress = true; bind(InetSocketAddress(udpPort)) }
         running = true
         _players.value = listOf(Player(0, hostPlayerName.ifBlank { "房主" }.take(32)))
         registration = NsdDiscovery(context).register(config, actualTcpPort, actualUdpPort, 0)
@@ -47,6 +48,8 @@ private val config: RoomConfig,
     private suspend fun acceptLoop() {
         while (running && scope.isActive) {
             val socket = runCatching { tcp?.accept() }.getOrNull() ?: break
+            if (clients.size >= config.maxPlayers) { socket.close(); continue }
+            socket.soTimeout = 30_000
             socket.tcpNoDelay = true
             socket.keepAlive = true
             val id = nextId.getAndIncrement()
@@ -60,7 +63,8 @@ private val config: RoomConfig,
         try {
             val hello = withTimeout(5000) { client.session.receive() }
             if (hello.type != Protocol.HELLO) throw IllegalStateException("HELLO required")
-            client.name = hello.payload.toString(Charsets.UTF_8).take(32)
+            client.name = hello.payload.toString(Charsets.UTF_8).trim().take(32)
+            if (client.name.isEmpty() || client.name.any { it.isISOControl() }) throw IllegalArgumentException("Invalid player name")
             client.session.send(Protocol.HELLO, intBytes(client.id))
             broadcastPlayerList()
             broadcastTcp(Protocol.RELIABLE, "join:${client.id}:${client.name}".toByteArray())
@@ -95,7 +99,8 @@ Protocol.RELIABLE -> broadcastTcp(Protocol.RELIABLE, message.payload)
                 if (playerId != null) udpPeers[playerId] = source
                 continue
             }
-            if (playerId != null) udpPeers[playerId] = source
+            if (playerId == null || !inboundSequences.accept(playerId, result.sequence)) continue
+            udpPeers[playerId] = source
             val bytes = Protocol.encodeUdp(result.type, result.sequence, result.frame, result.payload)
             udpPeers.values.distinct().forEach { peer ->
                 runCatching { socket.send(DatagramPacket(bytes, bytes.size, peer.address, peer.port)) }
@@ -137,6 +142,7 @@ Protocol.RELIABLE -> broadcastTcp(Protocol.RELIABLE, message.payload)
         clients.values.forEach { it.session.close() }
         clients.clear()
         udpPeers.clear()
+        inboundSequences.clear()
         runCatching { tcp?.close() }
         udp?.close()
         scope.cancel()

@@ -31,7 +31,7 @@ object Protocol {
         val sequence = b.int
         val frame = b.int
         val size = b.short.toInt() and 0xffff
-        if (size > MAX_PAYLOAD || size > b.remaining()) return null
+        if (size > MAX_PAYLOAD || size != b.remaining()) return null
         return UdpPacket(type, sequence, frame, ByteArray(size).also(b::get))
     }
 }

@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.*
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicInteger
 
-class LanClient(context: Context, private val gameId: String, private val gameVersion: Int = 1) : LanMultiplayer {
+class LanClient(context: Context, private val gameId: String, private val gameVersion: Int = 1) : LanMultiplayer, ExternalMultiplayerApi {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val discovery = NsdDiscovery(context)
     private var discoveryJob: Job? = null
@@ -48,10 +48,11 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
     override fun stopDiscovery() { discoveryJob?.cancel(); discoveryJob = null; _rooms.value = emptyList() }
 
     override suspend fun join(room: Room, playerName: String): Boolean {
+        if (room.gameId != gameId || room.gameVersion != gameVersion || !isValidPlayerName(playerName)) return false
         closeConnection(); _state.value = ConnectionState.CONNECTING
         return runCatching {
             val session = TcpSession.connect(room.host, room.tcpPort)
-            tcp = session; udp = UdpSession(room.host, room.udpPort)
+            tcp = session; udp = UdpSession(room.host, room.udpPort.takeIf { it in 1..65535 } ?: room.tcpPort)
             session.send(Protocol.HELLO, playerName.take(32).toByteArray())
             val welcome = withTimeout(5000) { session.receive() }
             require(welcome.type == Protocol.HELLO && welcome.payload.size >= 4)
@@ -65,6 +66,14 @@ class LanClient(context: Context, private val gameId: String, private val gameVe
             true
         }.getOrElse { closeConnection(); _state.value = ConnectionState.FAILED; false }
     }
+
+    override suspend fun joinExternal(endpoint: ExternalRoomEndpoint, playerName: String): Boolean {
+        val accepted = endpoint.gameId == gameId && endpoint.gameVersion == gameVersion && isValidPlayerName(playerName)
+        return accepted && join(endpoint.normalized().toRoom(), playerName)
+    }
+
+    private fun isValidPlayerName(name: String): Boolean =
+        name.trim().isNotEmpty() && name.length <= 32 && name.none { it.isISOControl() }
 
     private suspend fun tcpLoop(session: TcpSession) {
         try {
