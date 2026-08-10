@@ -776,6 +776,20 @@ LOCKSTEP 只适合满足下列前提的游戏：
 - 不要把密码、Access Token、用户隐私或长期密钥放入聊天、UDP 实时包或公开邀请链接；
 - 提交前运行 `git diff --check`；推送后以 GitHub Actions 云端构建结果为准；
 - 新功能应至少补充一条 README 使用方式、失败行为和真机联调步骤。
+## 整体代码优化说明
+
+近期整体优化重点放在“宿主项目更容易接入、异常输入更早失败、不同 Android 设备更稳”三个方向：
+
+- 新增 `LanMultiplayerSdk` 统一工厂和 `LanMultiplayerOptions`，避免宿主项目直接依赖内部实现；
+- `RoomConfig` 增加房间名、游戏标识、版本号、人数范围校验，减少错误配置进入网络层；
+- TCP/UDP 消息类型与长度边界统一校验，拒绝零类型、超大帧和非法 UDP 端口；
+- 玩家名称按 UTF‑8 字节数安全截断，避免中文、表情等多字节字符被截断成无效编码；
+- 保留 Native 序列比较的可选加速和 Kotlin 回退，不把 NDK/JNI 作为宿主项目的强制接入条件；
+- 核心 API 不依赖 Compose，兼容普通 View、游戏引擎、Service、ViewModel 和纯 Kotlin 业务层；
+- 网络资源继续采用显式 `close()`、协程取消和 application-scoped Context 管理。
+
+所有优化仍需通过 GitHub Actions 的 Android Build、Quality Checks 和 Security Checks，并结合多款 Android 真机验证后，才能确认最终兼容性。
+
 ## GitHub Actions 工作流
 
 项目将构建和自动检查交给 GitHub Actions 执行，**不要求本地安装 Android SDK、NDK 或 Gradle**。

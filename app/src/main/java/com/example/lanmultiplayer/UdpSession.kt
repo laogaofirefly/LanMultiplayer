@@ -8,6 +8,7 @@ import java.net.InetAddress
 
 class UdpSession(host: String, private val port: Int) {
     private val address = InetAddress.getByName(host)
+        .also { require(port in 1..65535) { "UDP port must be in 1..65535" } }
     private val socket = DatagramSocket(null).apply {
         reuseAddress = true
         sendBufferSize = 512 * 1024

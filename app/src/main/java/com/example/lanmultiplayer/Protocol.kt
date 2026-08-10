@@ -28,6 +28,7 @@ object Protocol {
     private const val UDP_HEADER_SIZE = 14
 
     fun encodeUdp(type: Byte, sequence: Int, frame: Int, payload: ByteArray): ByteArray {
+        require(type != 0.toByte()) { "UDP message type must not be zero" }
         require(payload.size <= MAX_PAYLOAD) { "UDP payload too large" }
         return ByteBuffer.allocate(UDP_HEADER_SIZE + payload.size)
             .putShort(MAGIC).put(VERSION).put(type)
@@ -37,8 +38,8 @@ object Protocol {
 
     fun encodeUdpJoin(token: String, playerName: String): ByteArray {
         val tokenBytes = token.toByteArray(Charsets.UTF_8)
-        val nameBytes = playerName.trim().take(32).toByteArray(Charsets.UTF_8)
-        require(tokenBytes.size <= 128 && nameBytes.isNotEmpty() && nameBytes.size <= 32)
+        val nameBytes = playerName.trim().toUtf8AtMost(32)
+        require(tokenBytes.size <= 128 && nameBytes.isNotEmpty())
         return ByteBuffer.allocate(1 + tokenBytes.size + nameBytes.size)
             .put(tokenBytes.size.toByte()).put(tokenBytes).put(nameBytes).array()
     }
@@ -64,6 +65,21 @@ object Protocol {
         if (size > MAX_PAYLOAD || size != b.remaining()) return null
         return UdpPacket(type, sequence, frame, ByteArray(size).also(b::get))
     }
+}
+
+private fun String.toUtf8AtMost(maxBytes: Int): ByteArray {
+    require(maxBytes >= 0)
+    val builder = StringBuilder()
+    var index = 0
+    while (index < length) {
+        val codePoint = codePointAt(index)
+        val value = String(Character.toChars(codePoint))
+        val candidate = (builder.toString() + value).toByteArray(Charsets.UTF_8)
+        if (candidate.size > maxBytes) break
+        builder.append(value)
+        index += Character.charCount(codePoint)
+    }
+    return builder.toString().toByteArray(Charsets.UTF_8)
 }
 
 data class UdpPacket(

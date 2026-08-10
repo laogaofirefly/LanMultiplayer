@@ -11,6 +11,8 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
 
+private const val MAX_FRAME_PAYLOAD = 1024 * 1024
+
 internal interface FramedSession {
     suspend fun send(type: Byte, payload: ByteArray)
     suspend fun receive(): NetworkMessage
@@ -28,7 +30,8 @@ class TcpSession private constructor(
     private val output = BufferedOutputStream(outputStream)
 
     override suspend fun send(type: Byte, payload: ByteArray) = withContext(Dispatchers.IO) {
-        require(payload.size <= 1024 * 1024)
+        require(type != 0.toByte()) { "TCP message type must not be zero" }
+        require(payload.size <= MAX_FRAME_PAYLOAD) { "TCP payload too large" }
         val body = ByteBuffer.allocate(1 + payload.size).put(type).put(payload).array()
         synchronized(output) {
             output.write(ByteBuffer.allocate(4).putInt(body.size).array())
@@ -41,7 +44,7 @@ class TcpSession private constructor(
         val lengthBytes = ByteArray(4)
         readFully(lengthBytes)
         val length = ByteBuffer.wrap(lengthBytes).int
-        require(length in 1..1024 * 1024)
+        require(length in 1..MAX_FRAME_PAYLOAD + 1) { "Invalid TCP frame length" }
         val body = ByteArray(length)
         readFully(body)
         NetworkMessage(body[0], body.copyOfRange(1, body.size))

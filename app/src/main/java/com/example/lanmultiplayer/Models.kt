@@ -34,6 +34,10 @@ data class RoomConfig(
     val gameRuleValidator: GameRuleValidator = DefaultGameRuleValidator
 ) {
     init {
+        require(name.isNotBlank() && name.length <= 64 && name.none { it.isISOControl() }) { "Invalid room name" }
+        require(gameId.isNotBlank() && gameId.length <= 64 && gameId.none { it.isISOControl() }) { "Invalid gameId" }
+        require(gameVersion > 0) { "gameVersion must be positive" }
+        require(maxPlayers in 1..64) { "maxPlayers must be in 1..64" }
         require(roomToken.length <= 128 && roomToken.none { it.isISOControl() })
         if (security.mode == SecurityMode.SECURE) SessionSecurity.validateToken(roomToken)
         require((security.mode == SecurityMode.SECURE) == roomToken.isNotEmpty()) { "Secure mode requires a roomToken; insecure mode must not carry one" }
